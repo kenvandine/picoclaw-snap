@@ -1,0 +1,56 @@
+name: picoclaw
+base: core24
+adopt-info: picoclaw
+title: PicoClaw
+summary: Lightweight CMDOP agent plugin optimised for speed
+description: |
+  PicoClaw is a lightweight, high-speed CMDOP agent plugin for Node.js. It
+  provides a minimal-footprint client for connecting to CMDOP (Command
+  Operator) servers via gRPC, optimised for low latency and efficient
+  resource usage.
+
+  SETUP
+
+  Requires a CMDOP API key. Configure on first launch:
+
+    picoclaw configure
+
+source-code: https://github.com/commandoperator/cmdop-sdk-js
+issues: https://github.com/commandoperator/cmdop-sdk-js/issues
+contact: https://github.com/commandoperator/cmdop-sdk-js/issues
+
+grade: stable
+confinement: strict
+
+apps:
+  picoclaw:
+    command: bin/picoclaw-launch
+    plugs:
+      - home
+      - network
+
+parts:
+  launcher:
+    plugin: dump
+    source: snap/local
+    organize:
+      bin/picoclaw-launch: bin/picoclaw-launch
+
+  picoclaw:
+    plugin: npm
+    source: .
+    npm-include-node: true
+    npm-node-version: '22.16.0'
+    override-build: |
+      craftctl default
+      export PATH="$CRAFT_PART_INSTALL/bin:$PATH"
+      patchelf \
+        --set-interpreter /snap/core24/current/lib64/ld-linux-x86-64.so.2 \
+        --set-rpath /snap/core24/current/lib/x86_64-linux-gnu \
+        "$CRAFT_PART_INSTALL/bin/node"
+      npm install -g --prefix "$CRAFT_PART_INSTALL" picoclaw
+      craftctl set version="$("$CRAFT_PART_INSTALL/bin/node" -e \
+        "console.log(require('$CRAFT_PART_INSTALL/lib/node_modules/picoclaw/package.json').version)")"
+    build-packages:
+      - python3
+      - patchelf

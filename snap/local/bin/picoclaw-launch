@@ -1,0 +1,8 @@
+#!/bin/sh
+# picoclaw-launch — run PicoClaw via its Node.js module entry point.
+# PicoClaw is a programmatic library; update this launcher once a dedicated
+# CLI entry point is added to the package.
+
+mkdir -p "$HOME/.picoclaw"
+
+exec "$SNAP/bin/node" "$SNAP/lib/node_modules/picoclaw/index.js" "$@"
