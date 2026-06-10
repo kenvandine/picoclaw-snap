@@ -44,13 +44,19 @@ parts:
     override-build: |
       craftctl default
       export PATH="$CRAFT_PART_INSTALL/bin:$PATH"
+      # Run npm install with the unpatched node first.  Patching node to
+      # core24's linker BEFORE this segfaults the build, because
+      # /snap/core24/current is not mounted inside the build instance.
+      npm install -g --prefix "$CRAFT_PART_INSTALL" picoclaw
+      craftctl set version="$("$CRAFT_PART_INSTALL/bin/node" -e \
+        "console.log(require('$CRAFT_PART_INSTALL/lib/node_modules/picoclaw/package.json').version)")"
+      # Strict confinement: patch the bundled node to core24's dynamic linker
+      # so it resolves inside the sandbox at runtime.  Done last, after node
+      # has finished doing build-time work.
       patchelf \
         --set-interpreter /snap/core24/current/lib64/ld-linux-x86-64.so.2 \
         --set-rpath /snap/core24/current/lib/x86_64-linux-gnu \
         "$CRAFT_PART_INSTALL/bin/node"
-      npm install -g --prefix "$CRAFT_PART_INSTALL" picoclaw
-      craftctl set version="$("$CRAFT_PART_INSTALL/bin/node" -e \
-        "console.log(require('$CRAFT_PART_INSTALL/lib/node_modules/picoclaw/package.json').version)")"
     build-packages:
       - python3
       - patchelf
