@@ -13,20 +13,32 @@ Snapcraft will install `picoclaw` from the npm registry, bundling Node.js 22.
 ## Installing
 
 ```
-sudo snap install picoclaw_<version>_amd64.snap
+sudo snap install --classic picoclaw_<version>_amd64.snap --dangerous
 ```
 
 ## Usage
 
+PicoClaw is primarily a **programmatic library** (a themed wrapper around the
+[`@cmdop/node`](https://cmdop.com/docs/sdk/node/) SDK), so the bundled command is
+a thin self-check rather than a full agent CLI:
+
 ```
-picoclaw configure    # configure CMDOP API key
-picoclaw             # run the agent plugin
+picoclaw doctor      # verify the SDK loads (offline self-check)
+picoclaw version
+picoclaw help
+```
+
+To use it programmatically:
+
+```js
+const { createPicoClaw } = require('picoclaw');
+const client = await createPicoClaw({ /* CMDOP server URL + API key */ });
 ```
 
 ## Design notes
 
-**npm library** — PicoClaw is currently a programmatic Node.js library (no bin entry). The launcher invokes its `index.js` entry point directly; update `snap/local/bin/picoclaw-launch` once a dedicated CLI entry is added to the package.
+**npm library, no upstream CLI** — PicoClaw is a programmatic Node.js library with no `bin` entry. The snap ships a small CLI (`snap/local/bin/picoclaw-cli.js`) that self-checks the SDK (`doctor`) and prints version/help; the package is resolved via `NODE_PATH=$SNAP/lib/node_modules`. Extend it with real agent subcommands (built on `createPicoClaw()`) when wanted.
 
-**Strict confinement** — PicoClaw is a gRPC client that communicates with CMDOP servers over the network with no need for broad filesystem access, so strict confinement is used with `home` and `network` plugs.
+**Classic confinement** — Consistent with the other claw snaps: picoclaw bundles its own Node.js and performs agentic CMDOP work that benefits from broad host access. (Classic snaps use the host's dynamic linker, so the bundled node is not patchelf'd.)
 
-**No daemon** — PicoClaw is a client plugin, not a server. There is no background service.
+**No daemon** — PicoClaw is a client, not a server. There is no background service.

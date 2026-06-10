@@ -1,8 +1,12 @@
 #!/bin/sh
-# picoclaw-launch — run PicoClaw via its Node.js module entry point.
-# PicoClaw is a programmatic library; update this launcher once a dedicated
-# CLI entry point is added to the package.
+# picoclaw-launch — entry point for the picoclaw snap.
+# PicoClaw is a programmatic library (no upstream CLI), so we ship a thin CLI
+# (picoclaw-cli.js) that self-checks the SDK and points users at the API.
+
+# CommonJS module resolution honours NODE_PATH, so the bundled global package
+# 'picoclaw' is found under $SNAP/lib/node_modules.
+export NODE_PATH="$SNAP/lib/node_modules"
 
 mkdir -p "$HOME/.picoclaw"
 
-exec "$SNAP/bin/node" "$SNAP/lib/node_modules/picoclaw/index.js" "$@"
+exec "$SNAP/bin/node" "$SNAP/bin/picoclaw-cli.js" "$@"

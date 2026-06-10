@@ -9,25 +9,25 @@ description: |
   Operator) servers via gRPC, optimised for low latency and efficient
   resource usage.
 
-  SETUP
+  PicoClaw is primarily a programmatic library (a themed wrapper around the
+  @cmdop/node SDK).  The bundled command offers a self-check:
 
-  Requires a CMDOP API key. Configure on first launch:
-
-    picoclaw configure
+    picoclaw doctor      # verify the SDK loads
+    picoclaw version
+    picoclaw help
 
 source-code: https://github.com/commandoperator/cmdop-sdk-js
 issues: https://github.com/commandoperator/cmdop-sdk-js/issues
 contact: https://github.com/commandoperator/cmdop-sdk-js/issues
 
 grade: stable
-confinement: strict
+# Classic confinement, consistent with the other claw snaps: picoclaw bundles
+# its own Node.js and performs agentic CMDOP work that needs broad host access.
+confinement: classic
 
 apps:
   picoclaw:
     command: bin/picoclaw-launch
-    plugs:
-      - home
-      - network
 
 parts:
   launcher:
@@ -35,6 +35,7 @@ parts:
     source: snap/local
     organize:
       bin/picoclaw-launch: bin/picoclaw-launch
+      bin/picoclaw-cli.js: bin/picoclaw-cli.js
 
   picoclaw:
     plugin: npm
@@ -44,19 +45,12 @@ parts:
     override-build: |
       craftctl default
       export PATH="$CRAFT_PART_INSTALL/bin:$PATH"
-      # Run npm install with the unpatched node first.  Patching node to
-      # core24's linker BEFORE this segfaults the build, because
-      # /snap/core24/current is not mounted inside the build instance.
+      # Classic confinement runs against the host's dynamic linker, so the
+      # bundled node needs no patchelf (matches the openclaw/zeroclaw snaps).
+      # Patching node to core24's linker segfaults on hosts whose glibc differs
+      # (observed on Ubuntu 26.04).
       npm install -g --prefix "$CRAFT_PART_INSTALL" picoclaw
       craftctl set version="$("$CRAFT_PART_INSTALL/bin/node" -e \
         "console.log(require('$CRAFT_PART_INSTALL/lib/node_modules/picoclaw/package.json').version)")"
-      # Strict confinement: patch the bundled node to core24's dynamic linker
-      # so it resolves inside the sandbox at runtime.  Done last, after node
-      # has finished doing build-time work.
-      patchelf \
-        --set-interpreter /snap/core24/current/lib64/ld-linux-x86-64.so.2 \
-        --set-rpath /snap/core24/current/lib/x86_64-linux-gnu \
-        "$CRAFT_PART_INSTALL/bin/node"
     build-packages:
       - python3
-      - patchelf
