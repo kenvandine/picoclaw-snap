@@ -1,6 +1,6 @@
 # picoclaw snap
 
-Snap packaging for [PicoClaw](https://github.com/commandoperator/cmdop-sdk-js) — a lightweight, high-speed CMDOP agent plugin for Node.js.
+Snap packaging for [PicoClaw](https://github.com/sipeed/picoclaw) by Sipeed — a tiny, fast, local-first personal AI assistant (a single static Go binary that runs in under 10 MB of RAM).
 
 ## Building
 
@@ -8,7 +8,7 @@ Snap packaging for [PicoClaw](https://github.com/commandoperator/cmdop-sdk-js) �
 snapcraft
 ```
 
-Snapcraft will install `picoclaw` from the npm registry, bundling Node.js 22.
+Snapcraft fetches the latest PicoClaw release binary for the target architecture from GitHub. No build toolchain is required.
 
 ## Installing
 
@@ -18,27 +18,44 @@ sudo snap install --classic picoclaw_<version>_amd64.snap --dangerous
 
 ## Usage
 
-PicoClaw is primarily a **programmatic library** (a themed wrapper around the
-[`@cmdop/node`](https://cmdop.com/docs/sdk/node/) SDK), so the bundled command is
-a thin self-check rather than a full agent CLI:
-
 ```
-picoclaw doctor      # verify the SDK loads (offline self-check)
-picoclaw version
-picoclaw help
+picoclaw onboard          # first-run setup wizard
+picoclaw agent -m "..."   # one-shot chat with the agent
+picoclaw                  # interactive CLI
+picoclaw.lemonade         # pick a local Lemonade model (interactive TUI)
 ```
 
-To use it programmatically:
+The background gateway service (chat-platform integrations) is installed and enabled as a systemd user unit the first time any `picoclaw` command is run:
 
-```js
-const { createPicoClaw } = require('picoclaw');
-const client = await createPicoClaw({ /* CMDOP server URL + API key */ });
 ```
+systemctl --user status picoclaw
+systemctl --user stop picoclaw
+```
+
+### Local AI with Lemonade
+
+`picoclaw.lemonade` detects a running [lemonade-server](https://lemonade-server.ai)
+(`http://127.0.0.1:13305`), lists its loaded chat models, and lets you choose one
+as PicoClaw's default. It configures the model through PicoClaw's own
+`picoclaw model add` command (an OpenAI-compatible endpoint) and restarts the
+gateway. Re-run it any time to switch models. Because PicoClaw is a dependency-free
+static binary, this picker is a pure POSIX-sh + curl TUI (rather than the Node TUI
+used by Node-based claw snaps).
 
 ## Design notes
 
-**npm library, no upstream CLI** — PicoClaw is a programmatic Node.js library with no `bin` entry. The snap ships a small CLI (`snap/local/bin/picoclaw-cli.js`) that self-checks the SDK (`doctor`) and prints version/help; the package is resolved via `NODE_PATH=$SNAP/lib/node_modules`. Extend it with real agent subcommands (built on `createPicoClaw()`) when wanted.
+**GitHub release binary** — PicoClaw ships as a pre-built static Go binary from GitHub releases (`picoclaw_Linux_<arch>.tar.gz`). The `nil` plugin is used with a custom `override-pull` that downloads and extracts the correct binary for the target architecture; the snap version is adopted from the upstream release tag.
 
-**Classic confinement** — Consistent with the other claw snaps: picoclaw bundles its own Node.js and performs agentic CMDOP work that benefits from broad host access. (Classic snaps use the host's dynamic linker, so the bundled node is not patchelf'd.)
+**Classic confinement** — PicoClaw performs agentic tasks (file operations, code execution, scheduled jobs) that require broad system access.
 
-**No daemon** — PicoClaw is a client, not a server. There is no background service.
+**Gateway daemon** — `picoclaw gateway` runs the chat-integration server as a systemd user unit (`picoclaw.daemon`).
+
+## Links
+
+- Upstream project: <https://github.com/sipeed/picoclaw> (https://picoclaw.io)
+- Snap packaging: <https://github.com/kenvandine/picoclaw-snap>
+- Report a snap issue: <https://github.com/kenvandine/picoclaw-snap/issues>
+
+## License
+
+PicoClaw is licensed under **MIT**. This snap packaging lives in [kenvandine/picoclaw-snap](https://github.com/kenvandine/picoclaw-snap).

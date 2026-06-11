@@ -1,12 +1,27 @@
 #!/bin/sh
-# picoclaw-launch — entry point for the picoclaw snap.
-# PicoClaw is a programmatic library (no upstream CLI), so we ship a thin CLI
-# (picoclaw-cli.js) that self-checks the SDK and points users at the API.
-
-# CommonJS module resolution honours NODE_PATH, so the bundled global package
-# 'picoclaw' is found under $SNAP/lib/node_modules.
-export NODE_PATH="$SNAP/lib/node_modules"
+# picoclaw-launch — interactive CLI wrapper.
+# Runs first-run onboarding and installs/refreshes the gateway user service,
+# then execs the bundled picoclaw binary.
 
 mkdir -p "$HOME/.picoclaw"
 
-exec "$SNAP/bin/node" "$SNAP/bin/picoclaw-cli.js" "$@"
+# First-run onboarding creates the config + workspace (safe non-interactively).
+if [ ! -f "$HOME/.picoclaw/config.json" ]; then
+  "$SNAP/bin/picoclaw" onboard >/dev/null 2>&1 || true
+fi
+
+# Install/refresh and enable the gateway service.  Re-copy the unit whenever the
+# bundled copy changes (e.g. after a snap refresh) so updates actually land.
+SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
+SERVICE_NAME="picoclaw"
+UNIT_PATH="$SYSTEMD_USER_DIR/${SERVICE_NAME}.service"
+mkdir -p "$SYSTEMD_USER_DIR"
+if [ ! -f "$UNIT_PATH" ] || ! cmp -s "$SNAP/share/systemd/user/${SERVICE_NAME}.service" "$UNIT_PATH"; then
+  cp "$SNAP/share/systemd/user/${SERVICE_NAME}.service" "$UNIT_PATH"
+  systemctl --user daemon-reload 2>/dev/null || true
+fi
+if ! systemctl --user is-enabled "$SERVICE_NAME" >/dev/null 2>&1; then
+  systemctl --user enable --now "$SERVICE_NAME" 2>/dev/null || true
+fi
+
+exec "$SNAP/bin/picoclaw" "$@"

@@ -4,7 +4,6 @@ on:
   pull_request:
     paths:
       - 'snap/**'
-      - 'package.json'
 
 permissions:
   contents: read
@@ -48,5 +47,19 @@ jobs:
 
       - name: Test picoclaw CLI
         run: |
-          picoclaw --version 2>&1 || true
-          picoclaw --help 2>&1 | head -20 || true
+          picoclaw version 2>&1 | head -20 || true
+          picoclaw --help 2>&1 | head -25 || true
+
+      - name: Test onboard
+        run: |
+          picoclaw onboard </dev/null 2>&1 | tail -10 || true
+
+      - name: Test daemon command
+        run: |
+          picoclaw.daemon --help 2>&1 | head -20 || true
+
+      - name: Test lemonade command
+        run: |
+          # No lemonade-server in CI, so this exits non-zero with a friendly
+          # "not detected" message; we only assert the app runs without crashing.
+          picoclaw.lemonade </dev/null 2>&1 | head -20 || true

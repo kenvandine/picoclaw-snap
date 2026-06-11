@@ -2,32 +2,63 @@ name: picoclaw
 base: core24
 adopt-info: picoclaw
 title: PicoClaw
-summary: Lightweight CMDOP agent plugin optimised for speed
+summary: Tiny, fast, local-first personal AI assistant
 description: |
-  PicoClaw is a lightweight, high-speed CMDOP agent plugin for Node.js. It
-  provides a minimal-footprint client for connecting to CMDOP (Command
-  Operator) servers via gRPC, optimised for low latency and efficient
-  resource usage.
+  PicoClaw is an ultra-lightweight personal AI assistant — a single static Go
+  binary small enough to run on $10 hardware with under 10 MB of RAM. It
+  connects to any OpenAI-compatible LLM (locally via Lemonade or Ollama, or
+  cloud providers such as OpenAI, Anthropic, Gemini, and 30+ others) and to
+  19+ messaging platforms (Telegram, Discord, WhatsApp, Matrix, and more),
+  performing agentic tasks with persistent memory and skills.
 
-  PicoClaw is primarily a programmatic library (a themed wrapper around the
-  @cmdop/node SDK).  The bundled command offers a self-check:
+  LOCAL AI
 
-    picoclaw doctor      # verify the SDK loads
-    picoclaw version
-    picoclaw help
+  Run 'picoclaw.lemonade' to detect a running lemonade-server
+  (http://127.0.0.1:13305), pick one of its models from a menu, and configure
+  it as PicoClaw's default — fully offline, no API key required.
 
-source-code: https://github.com/commandoperator/cmdop-sdk-js
-issues: https://github.com/commandoperator/cmdop-sdk-js/issues
-contact: https://github.com/commandoperator/cmdop-sdk-js/issues
+  SETUP
+
+  Run the onboarding wizard on first launch:
+
+    picoclaw onboard
+
+  Then add a provider API key (or use Lemonade/Ollama locally) and chat:
+
+    picoclaw agent -m "Hello!"
+
+  The background gateway service (chat integrations) starts automatically the
+  first time you run any picoclaw command and is managed as a standard systemd
+  user unit:
+
+    systemctl --user status picoclaw
+    systemctl --user stop picoclaw
+
+source-code: https://github.com/kenvandine/picoclaw-snap
+issues: https://github.com/kenvandine/picoclaw-snap/issues
+contact: https://github.com/kenvandine/picoclaw-snap/issues
+website: https://picoclaw.io
+license: MIT
 
 grade: stable
-# Classic confinement, consistent with the other claw snaps: picoclaw bundles
-# its own Node.js and performs agentic CMDOP work that needs broad host access.
 confinement: classic
 
 apps:
+  # Interactive CLI — onboarding wizard, agent chat, config, status, etc.
   picoclaw:
     command: bin/picoclaw-launch
+
+  # Interactive Lemonade model picker.  Run as: picoclaw.lemonade
+  lemonade:
+    command: bin/picoclaw-lemonade
+    environment:
+      CLAW_CLI_NAME: picoclaw
+
+  # Gateway daemon — registered as /snap/bin/picoclaw.daemon so the snap
+  # wrapper sets up $SNAP and friends before exec-ing the launch script.
+  # Managed by the systemd user unit installed on first run of 'picoclaw'.
+  daemon:
+    command: bin/picoclaw-daemon-launch
 
 parts:
   launcher:
@@ -35,22 +66,47 @@ parts:
     source: snap/local
     organize:
       bin/picoclaw-launch: bin/picoclaw-launch
-      bin/picoclaw-cli.js: bin/picoclaw-cli.js
+      bin/picoclaw-daemon-launch: bin/picoclaw-daemon-launch
+      bin/picoclaw-lemonade: bin/picoclaw-lemonade
+      share/systemd/user/picoclaw.service: share/systemd/user/picoclaw.service
 
   picoclaw:
-    plugin: npm
-    source: .
-    npm-include-node: true
-    npm-node-version: '22.16.0'
+    plugin: nil
+    override-pull: |
+      # Fetch the latest release tag from GitHub.
+      VERSION=$(curl -fsSL \
+        "https://api.github.com/repos/sipeed/picoclaw/releases/latest" \
+        | grep '"tag_name"' | head -1 \
+        | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+      if [ -z "$VERSION" ]; then
+        echo "picoclaw: failed to determine latest release version" >&2
+        exit 1
+      fi
+      craftctl set version="${VERSION#v}"
+
+      # Map the snap target arch to PicoClaw's release-asset arch label.
+      case "$CRAFT_ARCH_BUILD_FOR" in
+        amd64)   ARCH="x86_64" ;;
+        arm64)   ARCH="arm64" ;;
+        armhf)   ARCH="armv7" ;;
+        riscv64) ARCH="riscv64" ;;
+        *) echo "picoclaw: unsupported architecture: $CRAFT_ARCH_BUILD_FOR" >&2; exit 1 ;;
+      esac
+
+      TARBALL="picoclaw_Linux_${ARCH}.tar.gz"
+      echo "picoclaw: downloading ${TARBALL} (${VERSION})"
+      curl -fsSL \
+        "https://github.com/sipeed/picoclaw/releases/download/${VERSION}/${TARBALL}" \
+        -o "$CRAFT_PART_SRC/picoclaw.tar.gz"
+      tar -xzf "$CRAFT_PART_SRC/picoclaw.tar.gz" -C "$CRAFT_PART_SRC"
     override-build: |
-      craftctl default
-      export PATH="$CRAFT_PART_INSTALL/bin:$PATH"
-      # Classic confinement runs against the host's dynamic linker, so the
-      # bundled node needs no patchelf (matches the openclaw/zeroclaw snaps).
-      # Patching node to core24's linker segfaults on hosts whose glibc differs
-      # (observed on Ubuntu 26.04).
-      npm install -g --prefix "$CRAFT_PART_INSTALL" picoclaw
-      craftctl set version="$("$CRAFT_PART_INSTALL/bin/node" -e \
-        "console.log(require('$CRAFT_PART_INSTALL/lib/node_modules/picoclaw/package.json').version)")"
+      # The tarball ships the static `picoclaw` binary plus a `picoclaw-launcher`
+      # (browser WebUI helper); install both.
+      install -Dm755 "$CRAFT_PART_SRC/picoclaw" "$CRAFT_PART_INSTALL/bin/picoclaw"
+      if [ -f "$CRAFT_PART_SRC/picoclaw-launcher" ]; then
+        install -Dm755 "$CRAFT_PART_SRC/picoclaw-launcher" "$CRAFT_PART_INSTALL/bin/picoclaw-launcher"
+      fi
     build-packages:
-      - python3
+      - curl
+    stage-packages:
+      - curl

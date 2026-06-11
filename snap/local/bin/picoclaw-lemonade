@@ -1,0 +1,119 @@
+#!/bin/sh
+# picoclaw-lemonade — interactive Lemonade model picker for PicoClaw.
+#
+# Probes the local lemonade-server, presents a TUI to choose one of its loaded
+# models, and configures it as PicoClaw's default model via the official
+# `picoclaw model add` command (an OpenAI-compatible endpoint), then restarts
+# the gateway so the change takes effect.
+#
+# Run as:  picoclaw.lemonade
+#
+# PicoClaw is a dependency-free static binary, so this picker is pure POSIX sh
+# + curl (the same approach as nullclaw), rather than the Node TUI used by
+# Node-based claw snaps.
+
+CLI="${CLAW_CLI_NAME:-picoclaw}"
+LEMONADE_HOST="${CLAW_LEMONADE_HOST:-127.0.0.1}"
+LEMONADE_PORT="${CLAW_LEMONADE_PORT:-13305}"
+LEMONADE_API="http://${LEMONADE_HOST}:${LEMONADE_PORT}/api/v1"
+PICOCLAW="$SNAP/bin/picoclaw"
+CURL="$SNAP/usr/bin/curl"
+
+log() { printf '%s: %s\n' "$CLI" "$1"; }
+err() { printf '%s: %s\n' "$CLI" "$1" >&2; }
+
+mkdir -p "$HOME/.picoclaw"
+[ -f "$HOME/.picoclaw/config.json" ] || "$PICOCLAW" onboard >/dev/null 2>&1 || true
+
+probe_models() {
+  "$CURL" -sf --connect-timeout 3 --max-time 5 "${LEMONADE_API}/models" 2>/dev/null \
+    | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' \
+    | sed 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+}
+
+# Models that are not chat/completion models; hide them from the picker.
+is_non_chat() {
+  lower=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$lower" in
+    *flux*|*sdxl*|*stable?diff*) return 0 ;;
+    *kokoro*|*whisper*|*tts*|*speech*) return 0 ;;
+    *embed*|*retriev*|*rerank*) return 0 ;;
+  esac
+  return 1
+}
+
+# Configure PicoClaw to use a lemonade model as default (skips the network
+# call/picker because -m is given; also sets it as the default model).
+configure() {
+  "$PICOCLAW" --no-color model add \
+    -b "$LEMONADE_API" -k lemonade -m "$1" -n "lemonade-$1" >/dev/null 2>&1
+}
+
+ALL_MODELS=$(probe_models)
+if [ -z "$ALL_MODELS" ]; then
+  err "lemonade-server not detected at ${LEMONADE_HOST}:${LEMONADE_PORT}"
+  err "start lemonade-server, then run '${CLI}.lemonade' again"
+  exit 1
+fi
+
+MODELS=""
+for m in $ALL_MODELS; do
+  is_non_chat "$m" && continue
+  MODELS="${MODELS}${m}
+"
+done
+MODELS=$(printf '%s' "$MODELS" | sed '/^$/d')
+COUNT=$(printf '%s\n' "$MODELS" | grep -c .)
+if [ "$COUNT" -eq 0 ]; then
+  MODELS=$(printf '%s\n' "$ALL_MODELS" | sed '/^$/d')
+  COUNT=$(printf '%s\n' "$MODELS" | grep -c .)
+fi
+
+# Non-interactive (no TTY): pick the first chat model and configure silently.
+if [ ! -t 0 ] || [ ! -t 1 ]; then
+  SELECTED=$(printf '%s\n' "$MODELS" | head -1)
+  if configure "$SELECTED"; then
+    log "configured lemonade-${SELECTED} (non-interactive)"
+    systemctl --user restart "$CLI" >/dev/null 2>&1 || true
+    exit 0
+  fi
+  err "failed to configure ${SELECTED}"
+  exit 1
+fi
+
+printf '\nPicoClaw detected Lemonade at %s.\n' "$LEMONADE_API"
+printf 'Choose a model to use as the default:\n\n'
+
+i=1
+printf '%s\n' "$MODELS" | while IFS= read -r m; do
+  [ -z "$m" ] && continue
+  printf '  %d. %s\n' "$i" "$m"
+  i=$((i + 1))
+done
+printf '\n'
+
+while true; do
+  printf 'Model number [1]: '
+  read -r choice
+  [ -z "$choice" ] && choice=1
+  case "$choice" in
+    ''|*[!0-9]*) continue ;;
+  esac
+  if [ "$choice" -ge 1 ] && [ "$choice" -le "$COUNT" ]; then
+    break
+  fi
+done
+
+SELECTED=$(printf '%s\n' "$MODELS" | sed -n "${choice}p")
+
+if configure "$SELECTED"; then
+  log "default model -> lemonade-${SELECTED}  (${LEMONADE_API})"
+  if systemctl --user restart "$CLI" >/dev/null 2>&1; then
+    log "restarted the gateway service"
+  else
+    log "run 'systemctl --user restart ${CLI}' to apply"
+  fi
+else
+  err "failed to configure ${SELECTED}"
+  exit 1
+fi

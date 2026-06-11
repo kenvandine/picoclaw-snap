@@ -1,0 +1,11 @@
+#!/bin/sh
+# picoclaw-daemon-launch — persistent gateway service (chat integrations).
+
+mkdir -p "$HOME/.picoclaw"
+
+# Make sure config + workspace exist before the gateway starts.
+if [ ! -f "$HOME/.picoclaw/config.json" ]; then
+  "$SNAP/bin/picoclaw" onboard >/dev/null 2>&1 || true
+fi
+
+exec "$SNAP/bin/picoclaw" gateway

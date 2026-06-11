@@ -1,0 +1,11 @@
+[Unit]
+Description=PicoClaw gateway service
+After=network.target
+
+[Service]
+ExecStart=/snap/bin/picoclaw.daemon
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=default.target
