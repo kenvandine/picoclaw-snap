@@ -1,0 +1,128 @@
+#!/bin/sh
+# picoclaw-inference-snap — interactive inference snap picker for PicoClaw.
+#
+# Discovers installed Canonical inference snaps, probes their OpenAI-compatible
+# APIs, presents a menu to choose one, and configures it as PicoClaw's default
+# via the official `picoclaw model add` command, then restarts the gateway.
+#
+# Run as:  picoclaw.inference-snap
+#
+# Requires classic confinement: inference snap CLIs must be reachable via PATH.
+# Each snap's port is obtained via `<snap> get http.port` rather than a fixed
+# address, so no port assumptions are hardcoded here.
+
+CLI="${CLAW_CLI_NAME:-picoclaw}"
+PICOCLAW="$SNAP/bin/picoclaw"
+CURL="$SNAP/usr/bin/curl"
+
+INFERENCE_SNAPS="${CLAW_INFERENCE_SNAPS:-gemma3 gemma4 deepseek-r1 nemotron-3-nano nemotron-3-nano-omni qwen-vl}"
+
+log() { printf '%s: %s\n' "$CLI" "$1"; }
+err() { printf '%s: %s\n' "$CLI" "$1" >&2; }
+
+mkdir -p "$HOME/.picoclaw"
+[ -f "$HOME/.picoclaw/config.json" ] || "$PICOCLAW" onboard >/dev/null 2>&1 || true
+
+get_snap_base_url() {
+  sname="$1"
+  snap list "$sname" >/dev/null 2>&1 || return 1
+  host=$("$sname" get http.host 2>/dev/null)
+  port=$("$sname" get http.port 2>/dev/null)
+  bpath=$("$sname" get http.base-path 2>/dev/null)
+  [ -z "$port" ] && return 1
+  host="${host:-127.0.0.1}"
+  bpath="${bpath:-v1}"
+  printf 'http://%s:%s/%s' "$host" "$port" "$bpath"
+}
+
+probe_models() {
+  "$CURL" -sf --connect-timeout 3 --max-time 5 "${1}/models" 2>/dev/null \
+    | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' \
+    | sed 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+}
+
+configure() {
+  _base="$1"
+  _mid="$2"
+  _name="$3"
+  "$PICOCLAW" --no-color model add \
+    -b "$_base" -k EMPTY -m "$_mid" -n "$_name" >/dev/null 2>&1
+}
+
+ENTRIES=""
+for sname in $INFERENCE_SNAPS; do
+  base_url=$(get_snap_base_url "$sname") || continue
+  models=$(probe_models "$base_url")
+  [ -z "$models" ] && continue
+  for mid in $models; do
+    ENTRIES="${ENTRIES}${sname}|${base_url}|${mid}
+"
+  done
+done
+ENTRIES=$(printf '%s' "$ENTRIES" | sed '/^$/d')
+COUNT=$(printf '%s\n' "$ENTRIES" | grep -c .)
+
+if [ "$COUNT" -eq 0 ]; then
+  err "no inference snaps detected"
+  err "install one with: sudo snap install gemma4"
+  err "then run '${CLI}.inference-snap' again"
+  exit 1
+fi
+
+# Non-interactive (no TTY): pick the first entry and configure silently.
+if [ ! -t 0 ] || [ ! -t 1 ]; then
+  ENTRY=$(printf '%s\n' "$ENTRIES" | head -1)
+  _sname=$(printf '%s' "$ENTRY" | cut -d'|' -f1)
+  _base=$(printf '%s' "$ENTRY" | cut -d'|' -f2)
+  _mid=$(printf '%s' "$ENTRY" | cut -d'|' -f3)
+  _name="${_sname}-${_mid}"
+  if configure "$_base" "$_mid" "$_name"; then
+    log "configured ${_name} (non-interactive)"
+    systemctl --user restart "$CLI" >/dev/null 2>&1 || true
+    exit 0
+  fi
+  err "failed to configure ${_sname}/${_mid}"
+  exit 1
+fi
+
+printf '\n%s detected the following inference snaps:\n\n' "$CLI"
+i=1
+printf '%s\n' "$ENTRIES" | while IFS= read -r entry; do
+  [ -z "$entry" ] && continue
+  _sname=$(printf '%s' "$entry" | cut -d'|' -f1)
+  _base=$(printf '%s' "$entry" | cut -d'|' -f2)
+  _mid=$(printf '%s' "$entry" | cut -d'|' -f3)
+  printf '  %d. %s/%s  (%s)\n' "$i" "$_sname" "$_mid" "$_base"
+  i=$((i + 1))
+done
+printf '\n'
+
+while true; do
+  printf 'Model number [1]: '
+  read -r choice
+  [ -z "$choice" ] && choice=1
+  case "$choice" in
+    ''|*[!0-9]*) continue ;;
+  esac
+  if [ "$choice" -ge 1 ] && [ "$choice" -le "$COUNT" ]; then
+    break
+  fi
+done
+
+ENTRY=$(printf '%s\n' "$ENTRIES" | sed -n "${choice}p")
+SNAME=$(printf '%s' "$ENTRY" | cut -d'|' -f1)
+BASE_URL=$(printf '%s' "$ENTRY" | cut -d'|' -f2)
+MID=$(printf '%s' "$ENTRY" | cut -d'|' -f3)
+NAME="${SNAME}-${MID}"
+
+if configure "$BASE_URL" "$MID" "$NAME"; then
+  log "default model -> ${NAME}  (${BASE_URL})"
+  if systemctl --user restart "$CLI" >/dev/null 2>&1; then
+    log "restarted the gateway service"
+  else
+    log "run 'systemctl --user restart ${CLI}' to apply"
+  fi
+else
+  err "failed to configure ${SNAME}/${MID}"
+  exit 1
+fi

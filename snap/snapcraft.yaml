@@ -66,6 +66,13 @@ apps:
     environment:
       CLAW_CLI_NAME: picoclaw
 
+  # Interactive inference snap picker.  Run as: picoclaw.inference-snap
+  inference-snap:
+    command: bin/picoclaw-inference-snap
+    environment:
+      CLAW_CLI_NAME: picoclaw
+      CLAW_INFERENCE_SNAPS: "gemma3 gemma4 deepseek-r1 nemotron-3-nano nemotron-3-nano-omni qwen-vl"
+
   # Gateway daemon — registered as /snap/bin/picoclaw.daemon so the snap
   # wrapper sets up $SNAP and friends before exec-ing the launch script.
   # Managed by the systemd user unit installed on first run of 'picoclaw'.
@@ -80,6 +87,7 @@ parts:
       bin/picoclaw-launch: bin/picoclaw-launch
       bin/picoclaw-daemon-launch: bin/picoclaw-daemon-launch
       bin/picoclaw-lemonade: bin/picoclaw-lemonade
+      bin/picoclaw-inference-snap: bin/picoclaw-inference-snap
       share/systemd/user/picoclaw.service: share/systemd/user/picoclaw.service
 
   picoclaw:
