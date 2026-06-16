@@ -7,9 +7,8 @@
 #
 # Run as:  picoclaw.inference-snap
 #
-# Requires classic confinement: inference snap CLIs must be reachable via PATH.
-# Each snap's port is obtained via `<snap> get http.port` rather than a fixed
-# address, so no port assumptions are hardcoded here.
+# Requires classic confinement: reads /var/snap/<snap>/current/share/status/status.json
+# for endpoint discovery; falls back to the snap CLI if the file is absent.
 
 CLI="${CLAW_CLI_NAME:-picoclaw}"
 PICOCLAW="$SNAP/bin/picoclaw"

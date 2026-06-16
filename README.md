@@ -19,10 +19,11 @@ sudo snap install --classic picoclaw_<version>_amd64.snap --dangerous
 ## Usage
 
 ```
-picoclaw onboard          # first-run setup wizard
-picoclaw agent -m "..."   # one-shot chat with the agent
-picoclaw                  # interactive CLI
-picoclaw.lemonade         # pick a local Lemonade model (interactive TUI)
+picoclaw onboard            # first-run setup wizard
+picoclaw agent -m "..."     # one-shot chat with the agent
+picoclaw                    # interactive CLI
+picoclaw.lemonade           # pick a local Lemonade model (interactive TUI)
+picoclaw.inference-snap     # pick a Canonical inference snap (interactive TUI)
 ```
 
 The background gateway service (chat-platform integrations) is installed and enabled as a systemd user unit the first time any `picoclaw` command is run:
@@ -41,6 +42,19 @@ as PicoClaw's default. It configures the model through PicoClaw's own
 gateway. Re-run it any time to switch models. Because PicoClaw is a dependency-free
 static binary, this picker is a pure POSIX-sh + curl TUI (rather than the Node TUI
 used by Node-based claw snaps).
+
+### Local AI with Canonical inference snaps
+
+`picoclaw.inference-snap` detects installed [Canonical inference snaps](https://snapcraft.io/search?q=inference)
+such as `gemma4`, `gemma3`, `deepseek-r1`, `nemotron-3-nano`, or `qwen-vl`, probes
+their OpenAI-compatible API, and lets you choose one as PicoClaw's default model.
+It registers the endpoint via `picoclaw model add` and restarts the gateway so the
+change takes effect immediately. Re-run it any time to switch models.
+
+```
+sudo snap install gemma4
+picoclaw.inference-snap
+```
 
 ## Design notes
 
