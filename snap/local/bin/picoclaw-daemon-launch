@@ -8,4 +8,10 @@ if [ ! -f "$HOME/.picoclaw/config.json" ]; then
   "$SNAP/bin/picoclaw" onboard >/dev/null 2>&1 || true
 fi
 
-exec "$SNAP/bin/picoclaw" gateway
+# Start the web console (picoclaw-launcher) in the background so it is
+# available on port 18800.  -no-browser avoids attempting to open a
+# browser in a headless service context.  -host 0.0.0.0 binds to all
+# IPv4 interfaces so it is reachable through the LXD port proxy.
+"$SNAP/bin/picoclaw-launcher" -no-browser -host 0.0.0.0 "$HOME/.picoclaw/config.json" &
+
+exec "$SNAP/bin/picoclaw" gateway --host 0.0.0.0
