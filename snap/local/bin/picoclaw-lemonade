@@ -29,11 +29,17 @@ err() { printf '%s: %s\n' "$CLI" "$1" >&2; }
 
 # Parse arguments.
 AUTO=0
+GATEWAY_HOST=""
+_prev=""
 for arg in "$@"; do
+  [ "$_prev" = "--host" ] && { GATEWAY_HOST="$arg"; _prev=""; continue; }
   case "$arg" in
     --auto) AUTO=1 ;;
+    --host=*) GATEWAY_HOST="${arg#--host=}" ;;
+    --host) _prev="--host" ;;
     *) err "unknown argument: $arg"; exit 1 ;;
   esac
+  _prev="$arg"
 done
 
 # Install (or refresh) the systemd user service unit.  Called by --auto so
@@ -51,6 +57,25 @@ _install_service_unit() {
   if ! systemctl --user is-enabled "$SERVICE_NAME" >/dev/null 2>&1; then
     systemctl --user enable --now "$SERVICE_NAME" 2>/dev/null || true
   fi
+}
+
+# If --host was supplied, patch gateway.host in config.json before the service
+# starts.  Allows callers (e.g. Nimbus) to bind to 0.0.0.0 for container proxy
+# access without changing the safe localhost default for interactive installs.
+_set_gateway_host() {
+  [ -n "$GATEWAY_HOST" ] || return 0
+  local cfg="$HOME/.picoclaw/config.json"
+  [ -f "$cfg" ] || return 0
+  python3 -c "
+import json, sys
+p, h = sys.argv[1], sys.argv[2]
+with open(p) as f:
+    c = json.load(f)
+c.setdefault('gateway', {})['host'] = h
+with open(p, 'w') as f:
+    json.dump(c, f, indent=2)
+    f.write('\n')
+" "$cfg" "$GATEWAY_HOST" 2>/dev/null || true
 }
 
 mkdir -p "$HOME/.picoclaw"
@@ -132,6 +157,7 @@ if [ "$AUTO" -eq 1 ] || [ ! -t 0 ] || [ ! -t 1 ]; then
     SELECTED=$(printf '%s\n' "$MODELS" | pick_best)
     [ -z "$SELECTED" ] && SELECTED=$(printf '%s\n' "$MODELS" | head -1)
     _install_service_unit
+    _set_gateway_host
     if configure "$SELECTED"; then
       log "auto-configured lemonade-${SELECTED}"
       systemctl --user restart "$CLI" >/dev/null 2>&1 || true
