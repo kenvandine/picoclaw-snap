@@ -17,6 +17,9 @@ description: |
   (http://127.0.0.1:13305), pick one of its models from a menu, and configure
   it as PicoClaw's default — fully offline, no API key required.
 
+  Or run 'picoclaw.inference-snap' to pick a Canonical inference snap
+  (gemma4, gemma3, deepseek-r1, and others) as the provider instead.
+
   SETUP
 
   Run the onboarding wizard on first launch:
