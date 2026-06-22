@@ -30,13 +30,17 @@ err() { printf '%s: %s\n' "$CLI" "$1" >&2; }
 # Parse arguments.
 AUTO=0
 GATEWAY_HOST=""
+MODEL=""
 _prev=""
 for arg in "$@"; do
-  [ "$_prev" = "--host" ] && { GATEWAY_HOST="$arg"; _prev=""; continue; }
+  [ "$_prev" = "--host" ]  && { GATEWAY_HOST="$arg"; _prev=""; continue; }
+  [ "$_prev" = "--model" ] && { MODEL="$arg"; _prev=""; continue; }
   case "$arg" in
     --auto) AUTO=1 ;;
-    --host=*) GATEWAY_HOST="${arg#--host=}" ;;
-    --host) _prev="--host" ;;
+    --host=*)  GATEWAY_HOST="${arg#--host=}" ;;
+    --host)    _prev="--host" ;;
+    --model=*) MODEL="${arg#--model=}" ;;
+    --model)   _prev="--model" ;;
     *) err "unknown argument: $arg"; exit 1 ;;
   esac
   _prev="$arg"
@@ -154,8 +158,12 @@ fi
 # Non-interactive: --auto flag or no TTY.
 if [ "$AUTO" -eq 1 ] || [ ! -t 0 ] || [ ! -t 1 ]; then
   if [ "$AUTO" -eq 1 ]; then
-    SELECTED=$(printf '%s\n' "$MODELS" | pick_best)
-    [ -z "$SELECTED" ] && SELECTED=$(printf '%s\n' "$MODELS" | head -1)
+    if [ -n "$MODEL" ]; then
+      SELECTED="$MODEL"
+    else
+      SELECTED=$(printf '%s\n' "$MODELS" | pick_best)
+      [ -z "$SELECTED" ] && SELECTED=$(printf '%s\n' "$MODELS" | head -1)
+    fi
     _install_service_unit
     _set_gateway_host
     if configure "$SELECTED"; then
