@@ -82,6 +82,107 @@ with open(p, 'w') as f:
 " "$cfg" "$GATEWAY_HOST" 2>/dev/null || true
 }
 
+# Dynamically optimize max_tokens and other config settings based on host RAM
+# and the chosen model's context window capabilities, avoiding OOM and lag.
+_optimize_defaults() {
+  local cfg="$HOME/.picoclaw/config.json"
+  [ -f "$cfg" ] || return 0
+
+  res=$(python3 -c "
+import json, sys, urllib.request
+
+cfg_path = sys.argv[1]
+selected_model = sys.argv[2]
+api_url = sys.argv[3]
+
+def get_total_ram_gb():
+    try:
+        with open('/proc/meminfo', 'r') as f:
+            for line in f:
+                if line.startswith('MemTotal:'):
+                    parts = line.split()
+                    return int(parts[1]) / (1024 * 1024)
+    except Exception:
+        pass
+    return 8.0
+
+def get_model_context_limit(api_url, model_id):
+    try:
+        req = urllib.request.Request('{}/models'.format(api_url), headers={'User-Agent': 'picoclaw-lemonade'})
+        with urllib.request.urlopen(req, timeout=3) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            models = data if isinstance(data, list) else data.get('data', [])
+            for m in models:
+                if m.get('id') == model_id:
+                    recipe_opts = m.get('recipe_options', {}) or {}
+                    ctx_size = recipe_opts.get('ctx_size')
+                    if ctx_size and int(ctx_size) > 0:
+                        return int(ctx_size)
+                    max_ctx = m.get('max_context_window')
+                    if max_ctx and int(max_ctx) > 0:
+                        return int(max_ctx)
+    except Exception:
+        pass
+    return 4096
+
+try:
+    with open(cfg_path, 'r') as f:
+        config = json.load(f)
+
+    ram = get_total_ram_gb()
+    if ram < 6.0:
+        optimal = 2048
+    elif ram < 12.0:
+        optimal = 4096
+    elif ram < 24.0:
+        optimal = 8192
+    elif ram < 48.0:
+        optimal = 16384
+    else:
+        optimal = 32768
+
+    model_limit = get_model_context_limit(api_url, selected_model)
+    final_max_tokens = max(2048, min(optimal, model_limit))
+
+    if final_max_tokens <= 2048:
+        threshold = 10
+    elif final_max_tokens <= 4096:
+        threshold = 15
+    else:
+        threshold = 20
+
+    agents = config.setdefault('agents', {})
+    defaults = agents.setdefault('defaults', {})
+    defaults['max_tokens'] = final_max_tokens
+    defaults['summarize_message_threshold'] = threshold
+
+    model_alias = 'lemonade-{}'.format(selected_model)
+    for m in config.get('model_list', []):
+        if m.get('model_name') == model_alias:
+            m.pop('max_context_window', None)
+            m.pop('context_window', None)
+            m.pop('context_size', None)
+
+    with open(cfg_path, 'w') as f:
+        json.dump(config, f, indent=2)
+        f.write('\n')
+
+    print('Success|{:.1f}|{}|{}|{}'.format(ram, model_limit, final_max_tokens, threshold))
+except Exception as e:
+    print('Error|{}'.format(str(e)))
+" "$cfg" "$1" "$LEMONADE_API" 2>/dev/null)
+
+  case "$res" in
+    Success*)
+      ram=$(printf '%s' "$res" | cut -d'|' -f2)
+      model_limit=$(printf '%s' "$res" | cut -d'|' -f3)
+      max_tokens=$(printf '%s' "$res" | cut -d'|' -f4)
+      threshold=$(printf '%s' "$res" | cut -d'|' -f5)
+      log "optimized: max_tokens=${max_tokens}, threshold=${threshold} (RAM: ${ram}GB, Model max: ${model_limit})"
+      ;;
+  esac
+}
+
 mkdir -p "$HOME/.picoclaw"
 [ -f "$HOME/.picoclaw/config.json" ] || "$PICOCLAW" onboard >/dev/null 2>&1 || true
 
@@ -167,6 +268,7 @@ if [ "$AUTO" -eq 1 ] || [ ! -t 0 ] || [ ! -t 1 ]; then
     _install_service_unit
     _set_gateway_host
     if configure "$SELECTED"; then
+      _optimize_defaults "$SELECTED"
       log "auto-configured lemonade-${SELECTED}"
       systemctl --user restart "$CLI" >/dev/null 2>&1 || true
       exit 0
@@ -176,6 +278,7 @@ if [ "$AUTO" -eq 1 ] || [ ! -t 0 ] || [ ! -t 1 ]; then
   else
     SELECTED=$(printf '%s\n' "$MODELS" | head -1)
     if configure "$SELECTED"; then
+      _optimize_defaults "$SELECTED"
       log "configured lemonade-${SELECTED} (non-interactive)"
       systemctl --user restart "$CLI" >/dev/null 2>&1 || true
       exit 0
@@ -211,6 +314,7 @@ done
 SELECTED=$(printf '%s\n' "$MODELS" | sed -n "${choice}p")
 
 if configure "$SELECTED"; then
+  _optimize_defaults "$SELECTED"
   log "default model -> lemonade-${SELECTED}  (${LEMONADE_API})"
   if systemctl --user restart "$CLI" >/dev/null 2>&1; then
     log "restarted the gateway service"
