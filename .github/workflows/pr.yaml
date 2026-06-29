@@ -18,8 +18,6 @@ jobs:
       - name: Build snap
         id: build
         uses: snapcore/action-build@v1
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Install snapd
         run: |
