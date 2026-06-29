@@ -15,6 +15,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Build snap
+        id: build
+        uses: snapcore/action-build@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
       - name: Install snapd
         run: |
           sudo apt-get update
@@ -27,21 +33,9 @@ jobs:
           sudo systemctl start snapd.socket
           sleep 5
 
-      - name: Install snapcraft
-        run: sudo snap install snapcraft --channel=8.x/stable --classic
-
-      - name: Build snap
-        run: snapcraft pack
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
       - name: Install snap
         run: |
-          SNAP_FILE=$(ls -t picoclaw_*.snap | head -1)
-          if [ -z "$SNAP_FILE" ]; then
-            echo "No snap file found"
-            exit 1
-          fi
+          SNAP_FILE="${{ steps.build.outputs.snap }}"
           echo "Installing $SNAP_FILE"
           sudo snap install --dangerous "$SNAP_FILE" --classic
           snap wait system seed.loaded
