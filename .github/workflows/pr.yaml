@@ -32,6 +32,8 @@ jobs:
 
       - name: Build snap
         run: snapcraft pack
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Install snap
         run: |
